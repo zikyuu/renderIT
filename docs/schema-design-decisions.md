@@ -153,10 +153,48 @@ A related question came up while building the leaf schemas (`banner`, `card-grou
 
 **Decision: kept the 5 semantic leaf types.** A named type isn't just a label — it's a contract that guarantees the renderer receives exactly one, unambiguous content shape per case, so the small set of pre-written render functions can stay exhaustive and correct. Generalizing `content` would trade that guarantee for less duplication, and duplication was the smaller problem (already solved by `BaseSection.extend()`).
 
+## Sizing values: named-fraction enum → weighted ratio (revised after implementation)
+
+Once nesting was implemented (Option C, chosen above), a new problem showed up one level down: how does a section's actual *width/height* get sized? `span`/`height` originally used a named-fraction enum:
+
+```typescript
+const SizeUnit = z.enum(["full", "half", "third", "quarter", "fifth"]);
+```
+
+**Where it broke, concretely:** building a sidebar layout (a narrow sidebar beside a wide main content area) needed something like `"quarter"` for the sidebar and `"three-quarters"` for the main content — but `"three-quarters"` didn't exist in the enum. The fix looked like "just add it" — until noticing that's true for *every* fraction: `"third"` needs a `"two-thirds"` complement, `"fifth"` needs `"four-fifths"`, and an uneven 3-way split (say 1:2:1) has no clean named value at all, no matter how many labels get added. This is the exact same ceiling as Option A's flat position-enum, above — just recurring one level deeper, on sizing instead of position.
+
+```
+┌─────────┬─────────────────────────────────────┐
+│"quarter"│         "three-quarters"?             │  ← no such label exists,
+│         │   and never will for every ratio      │     and never can for all of them
+└─────────┴─────────────────────────────────────┘
+```
+
+**The fix:** swap the named-fraction enum for a small bounded integer *weight*, and let the renderer distribute space by ratio using CSS's `flex-grow` — the same idea as CSS Grid's `fr` unit.
+
+```typescript
+const SizeUnit = z.number().int().min(1).max(5);
+```
+
+```typescript
+// renderer.ts — renderGrid, per child:
+`<div style="flex: ${weight} 1 0;">...</div>`
+```
+
+A sidebar at weight `1` next to main content at weight `4` gives a 20/80 split automatically — no `"fifth"`/`"four-fifths"` pair needed. Three siblings weighted `1 : 2 : 1` give 25/50/25 — a ratio the enum could never express regardless of how many labels were added. Any new ratio just works, with zero schema changes.
+
+**Why this doesn't reopen the free-string mistake:** the field is still a small, bounded value (`1`–`5`), not unconstrained input — same underlying principle as rejecting `z.string()` for these fields in the first place (keep the LLM's output space finite, keep the renderer's job exhaustive). It's a bounded *number* instead of a bounded *label set*, which happens to compose combinatorially where labels don't.
+
+**Renderer impact:** the `SIZE_TO_PERCENT` lookup table (mapping each named fraction to a fixed CSS percentage) was deleted entirely — `flex-grow` ratios replace it, so there's nothing left to look up.
+
 ## Other rejected design notes
 
 - **Free-string `height`/`span` fields** (`z.string()` instead of `z.enum([...])`) were considered and rejected early. A free string lets the model return anything ("kinda tall," "60%") that the renderer has no pre-written case for. Keeping these fields as small enums is what keeps the renderer's job finite — it only ever needs to handle the exact values listed.
 - **Free-form shapes/circles, arbitrary fluid layout** — raised as a possible extension once containers and leaves were both rectangular. Rejected for this project: the entire point of the schema is that it's narrow enough for the renderer to handle *exhaustively*. Arbitrary shapes/positioning moves back toward "trust the model's raw output," which is the exact failure mode the JSON-schema approach exists to prevent. Noted as a legitimate stretch idea, explicitly out of MVP scope.
+
+## Future improvements (KIV, not MVP scope)
+
+- **"Edit" prompts** — a follow-up instruction that modifies an already-generated layout (e.g. "make the hero banner twice its height") instead of generating a fresh one. Considered and deliberately deferred: mechanically it's the same `prompt → validate → render` pipeline already built, just with a system prompt that also includes the current JSON as context — it doesn't exercise a new dimension of what this project actually demonstrates (schema/prompt/safeguard design), it's closer to an interaction-polish feature. Would add real scope (conversation state, diffing old vs. new spec, before/after UI) to what the original spec sized as a one-day project. Worth revisiting only if the core checklist (retry/fallback logic, 3 demo prompts, README) is done with time left over.
 
 ## Glossary
 

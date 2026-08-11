@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-const SizeUnit = z.enum(["full", "half", "third", "quarter","fifth"]);
+// relative weight, not a named fraction - a section's actual width/height
+// is this number divided by the sum of its siblings' weights (like CSS flex-grow / fr units)
+const SizeUnit = z.number().int().min(1).max(5);
 // everyth9ing in here is required
 const BaseSection = z.object({
     span: SizeUnit, 
@@ -87,3 +89,19 @@ const SectionSchema: z.ZodType<Section> = z.lazy(() => //SectionSchema only defi
     ])
 );
 
+const PageSchema = z.object({
+  sections: z.array(SectionSchema),
+});
+
+export { PageSchema, SectionSchema, Section, SizeUnit,
+  BannerSection, CardGroupSection, SidebarSection,
+  NavSection, FooterSection, GridSectionSchema };
+export type { GridSection };
+//why cannot just exprt Section?
+// Section does not carry BannerSection, and the rest w it
+// z.infer<typeof BannerSection> computes a snapsnot of BannerSection's shape at the moment
+// Section is declared, but once baked we dont have access to that specific "ingredient" anymore
+// similarly, Section ends up being a flattened descrition of all the 5 diff section types 
+// exporting Section would not give access to the indiv section types e.g. BannerSectio
+
+//ok yapper core but i scared i forget...
