@@ -195,6 +195,7 @@ A sidebar at weight `1` next to main content at weight `4` gives a 20/80 split a
 ## Future improvements (KIV, not MVP scope)
 
 - **"Edit" prompts** — a follow-up instruction that modifies an already-generated layout (e.g. "make the hero banner twice its height") instead of generating a fresh one. Considered and deliberately deferred: mechanically it's the same `prompt → validate → render` pipeline already built, just with a system prompt that also includes the current JSON as context — it doesn't exercise a new dimension of what this project actually demonstrates (schema/prompt/safeguard design), it's closer to an interaction-polish feature. Would add real scope (conversation state, diffing old vs. new spec, before/after UI) to what the original spec sized as a one-day project. Worth revisiting only if the core checklist (retry/fallback logic, 3 demo prompts, README) is done with time left over.
+- **V2: sketch-to-website** — a considerably bigger direction (hand-drawn sketch input via a vision-LLM, multi-page routing, direct-editing UI for images/colors). Full design discussion in [`v2-architecture-notes.md`](v2-architecture-notes.md).
 
 ## Glossary
 
