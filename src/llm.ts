@@ -3,23 +3,28 @@ import Anthropic from "@anthropic-ai/sdk";
 
 const anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY from process.env automatically
 
+//text to JSON spec prompt - V1 only. V2's screenshot pipeline no longer uses
+//an LLM at all (see docs/v2-architecture-notes.md, "Two separate theses") -
+//CV measures geometry, OCR reads text, a fine-tuned classifier reads font.
 const SYSTEM_PROMPT = `You are a layout generator. Given a plain-English description of a webpage, output ONLY a single JSON object matching this exact structure:
 
-{ "sections": [ <Section>, ... ] }
+{ "sections": [ <Section>, ... ], "gap" (optional) integer 0-100 - spacing between top-level sections }
 
-A <Section> is one of six types, chosen by its "type" field. Every section has:
-- "type": one of "banner" | "grid" | "card-group" | "sidebar" | "nav" | "footer"
-- "span": integer 1-5 - relative width weight among sibling sections in the same row
-- "height": integer 1-5 - relative height weight among sibling sections in the same column
-- "backgroundColor" (optional): a CSS color string
+A <Section> is one of two types, chosen by its "type" field:
 
-Additional fields per type:
-- "banner": "content": { "heading": string, "subtext"?: string }
-- "card-group": "content": { "title": string }
-- "sidebar": "content": { "items": string[] }
-- "nav": "content": { "links": string[] }
-- "footer": "content": { "text": string }
-- "grid": "direction": "row" | "column", "columns": Section[]
+- "rectangle": a content block. Fields:
+  - "span": integer 1-100 - relative width weight among sibling sections in the same row
+  - "height": integer 1-100 - relative height weight among sibling sections in the same column
+  - "backgroundColor" (optional): a CSS color string
+  - "clipPath" (optional): a CSS clip-path value, only if this section has a non-rectangular custom outline
+  - "textElements" (optional): array of { "text": string, "fontSize": integer 1-100 (100 = large heading, ~20 = small print), "x": integer 0-100 (% from left within this rectangle), "y": integer 0-100 (% from top), "isLink" (optional): boolean, "linkTarget" (optional): string }
+  - "imageRegions" (optional): array of { "x": integer 0-100, "y": integer 0-100, "width": integer 0-100, "height": integer 0-100, "clipPath" (optional): string }
+
+- "grid": a layout container, no content of its own. Fields:
+  - "span", "height", "backgroundColor" (optional) - same as above
+  - "direction": "row" | "column"
+  - "columns": array of Section (its children)
+  - "gap" (optional): integer 0-100 - spacing between the children
 
 Do not invent new "type" values or fields. Output raw JSON only - no markdown code fences, no explanation, no text before or after the JSON.`;
 

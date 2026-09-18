@@ -7,9 +7,11 @@ import {PageSchema} from "./schema";
 const FALLBACK_SPEC = {
     sections: [
         {
-            type: "banner", span: 1, height: 1,
-            content: { heading: "We couldn't generate that layout", 
-                subtext: "Please try rephrasing your request" },
+            type: "rectangle", span: 1, height: 1,
+            textElements: [
+                { text: "We couldn't generate that layout", fontSize: 60, x: 10, y: 40 },
+                { text: "Please try rephrasing your request", fontSize: 30, x: 10, y: 55 },
+            ],
         },
     ],
 };

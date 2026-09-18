@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "fs";
 import { PageSchema } from "./schema";
-import { renderSection } from "./renderer";
+import { renderSection, gapToRem } from "./renderer";
 
 // paste whatever JSON ChatGPT (or any LLM) gives you into manual-spec.json,
 // then run: npx tsx src/manual-test.ts
@@ -29,7 +29,7 @@ if (!result.success) {
 <title>LAYOUTry preview</title>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; display: flex; flex-direction: column; gap: 1rem; }
+  body { margin: 0; display: flex; flex-direction: column; gap: ${gapToRem(result.data.gap)}; }
 </style>
 </head>
 <body>

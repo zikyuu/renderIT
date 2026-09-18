@@ -1,5 +1,5 @@
 import { writeFileSync } from "fs";
-import { renderSection } from "./renderer";
+import { renderSection, gapToRem } from "./renderer";
 import { generateSpec } from "./llm";
 import { getValidatedSpec } from "./retry";
 
@@ -25,7 +25,7 @@ async function main() {
 <title>LAYOUTry preview</title>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; display: flex; flex-direction: column; gap: 1rem; }
+  body { margin: 0; display: flex; flex-direction: column; gap: ${gapToRem(data.gap)}; }
 </style>
 </head>
 <body>

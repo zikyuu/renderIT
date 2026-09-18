@@ -14,11 +14,11 @@ async function brokenThenFixedMock(prompt: string): Promise<unknown> {
   attempt++;
   console.log(`[broken-then-fixed mock] attempt ${attempt}`);
   if (attempt === 1) {
-    return { sections: [{ type: "banner", span: 1, height: 1 }] }; // missing required "content"
+    return { sections: [{ type: "rectangle", span: 1 }] }; // missing required "height"
   }
   return {
     sections: [
-      { type: "banner", span: 1, height: 1, content: { heading: "Fixed on retry!" } },
+      { type: "rectangle", span: 1, height: 1, textElements: [{ text: "Fixed on retry!", fontSize: 60, x: 10, y: 40 }] },
     ],
   };
 }

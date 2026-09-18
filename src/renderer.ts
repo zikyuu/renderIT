@@ -1,70 +1,70 @@
-import {z} from "zod";
+import { z } from "zod";
 
-import { BannerSection } from "./schema";
-import { CardGroupSection } from "./schema";
-import { FooterSection } from "./schema";
-import { SidebarSection } from "./schema";
-import { NavSection } from "./schema";
-import { GridSection, Section } from "./schema";
+import { RectangleSection, GridSection, Section, TextElement, ImageRegion } from "./schema";
 
-// shared style string every section type uses: padding so blocks don't touch,
-// plus backgroundColor from BaseSection if the spec set one (falls back to a
-// light default so blocks are visible even when no color was specified)
-function sectionStyle(section: { backgroundColor?: string }, fallback: string, padding: string = "1rem"): string {
+// gap is measured (0-100, "how much space relative to the max we'll ever use"),
+// not a ratio like span/height - CSS gap needs an absolute size, so this maps
+// the 0-100 scale onto a real rem value. 25 -> 1rem is the old hardcoded
+// default, kept as the fallback so specs without a gap render the same as before
+const MAX_GAP_REM = 4;
+const DEFAULT_GAP = 25;
+export function gapToRem(gap: number | undefined): string {
+    return `${((gap ?? DEFAULT_GAP) / 100) * MAX_GAP_REM}rem`;
+}
+
+// same idea as gapToRem, but for font size - the 1-100 measured scale maps
+// onto a real range from small print up to a large heading
+const MIN_FONT_REM = 0.75;
+const MAX_FONT_REM = 4;
+function fontSizeToRem(fontSize: number): string {
+    return `${MIN_FONT_REM + (fontSize / 100) * (MAX_FONT_REM - MIN_FONT_REM)}rem`;
+}
+
+// shared style string: backgroundColor from BaseSection if the spec set one
+// (falls back to a neutral default). padding defaults to 0 now, not 1rem -
+// child positions are already measured coordinates from the real design, so
+// adding artificial padding on top would shift them off their true position
+function sectionStyle(section: { backgroundColor?: string }, fallback: string, padding: string = "0"): string {
     return `padding: ${padding}; background-color: ${section.backgroundColor ?? fallback}; height: 100%; box-sizing: border-box;`;
 }
 
-//type params exactly to match the schema --> type routing
-// cannot import Section and use function renderBanner(section:Section)
-// bc Section is a union of all the different section types, so TS will complain that section might not be a BannerSection
-// since GridSection does not have content (cannot use section.content...)
-function renderBanner(section: z.infer<typeof BannerSection>): string {
-    //to handle optional subtext field in banner
-    const subtextHtml = section.content.subtext ? `<p>${section.content.subtext}</p>` : "";
+// one measured text element, positioned absolutely within its parent
+// rectangle by its own x/y (both % of the rectangle, matching the source
+// design's real layout, not a guessed spacing). isLink renders as a real
+// link - linkTarget stays empty until the linking canvas wires it up later
+function renderTextElement(el: z.infer<typeof TextElement>): string {
+    const style = `position: absolute; left: ${el.x}%; top: ${el.y}%; font-size: ${fontSizeToRem(el.fontSize)};`;
+    if (el.isLink) {
+        return `<a href="${el.linkTarget ?? "#"}" style="${style}">${el.text}</a>`;
+    }
+    return `<span style="${style}">${el.text}</span>`;
+}
+
+// one detected image region, positioned/sized by its measured bounding box.
+// clipPath (if the region isn't a plain rectangle) clips just this element -
+// imageUrl stays empty until the user drags a real image in later
+function renderImageRegion(region: z.infer<typeof ImageRegion>): string {
+    const clipStyle = region.clipPath ? `clip-path: ${region.clipPath};` : "";
+    const style = `position: absolute; left: ${region.x}%; top: ${region.y}%; width: ${region.width}%; height: ${region.height}%; ${clipStyle}`;
+    if (region.imageUrl) {
+        return `<img src="${region.imageUrl}" style="${style} object-fit: cover;" />`;
+    }
+    return `<div style="${style} background-color: #d1d5db; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: #6b7280;">image</div>`;
+}
+
+// replaces renderBanner/renderCardGroup/renderSidebar/renderNav/renderFooter -
+// one function laying out whatever measured text/image elements this
+// rectangle actually has, instead of dispatching on a pre-declared content type
+function renderRectangle(section: z.infer<typeof RectangleSection>): string {
+    const textHtml = (section.textElements ?? []).map(renderTextElement).join("");
+    const imageHtml = (section.imageRegions ?? []).map(renderImageRegion).join("");
+    const clipStyle = section.clipPath ? `clip-path: ${section.clipPath};` : "";
+
     return `
-    <div class="banner" style="${sectionStyle(section, "#fef9c3")}">
-        <h1>${section.content.heading}</h1>
-        ${subtextHtml}
+    <div class="rectangle" style="position: relative; ${clipStyle} ${sectionStyle(section, "#f3f4f6")}">
+        ${imageHtml}
+        ${textHtml}
     </div>
-    `;
-}
-//REMEMBER must be backticks ` not ' or else the string wont span multiple lines
-
-function renderCardGroup(section: z.infer<typeof CardGroupSection>): string {
-    return `
-    <div class="card-group" style="${sectionStyle(section, "#dbeafe")}">
-        <h2>${section.content.title}</h2>
-    </div>
-    `;
-}
-
-function renderFooter(section: z.infer<typeof FooterSection>): string {
-    return `
-    <footer style="${sectionStyle(section, "#e5e7eb")}">
-        <p>${section.content.text}</p>
-    </footer>
-    `;
-}
-
-//.map (callback) -> runs callback once per array element and returns array
-// .join("") -> takes array and joins all elements into a single string, with "" as separator (no separator)
-function renderSidebar(section: z.infer<typeof SidebarSection>): string {
-    const itemsHtml = section.content.items.map(item => `<li>${item}</li>`).join("");
-    return `
-    <aside class="sidebar" style="${sectionStyle(section, "#dcfce7")}">
-        <ul>
-            ${itemsHtml}
-        </ul>
-    </aside>
-    `;
-}
-
-function renderNav(section: z.infer<typeof NavSection>): string {
-    const linksHtml = section.content.links.map(link => `<a href="${link}">${link}</a>`).join(" | ");
-    return `
-    <nav class="nav" style="${sectionStyle(section, "#e0e7ff")}">
-        ${linksHtml}
-    </nav>
     `;
 }
 
@@ -79,7 +79,7 @@ function renderGrid(section: GridSection): string {
     }).join("");
 
     return `
-    <div class="grid" style="display: flex; flex-direction: ${section.direction}; gap: 1rem; ${sectionStyle(section, "transparent", "0")}">
+    <div class="grid" style="display: flex; flex-direction: ${section.direction}; gap: ${gapToRem(section.gap)}; ${sectionStyle(section, "transparent", "0")}">
         ${columnsHtml}
     </div>
     `;
@@ -88,16 +88,8 @@ function renderGrid(section: GridSection): string {
 // dispatcher: checks section.type, narrows the union, routes to the matching render function
 export function renderSection(section: Section): string {
     switch (section.type) {
-        case "banner":
-            return renderBanner(section);
-        case "card-group":
-            return renderCardGroup(section);
-        case "sidebar":
-            return renderSidebar(section);
-        case "nav":
-            return renderNav(section);
-        case "footer":
-            return renderFooter(section);
+        case "rectangle":
+            return renderRectangle(section);
         case "grid":
             return renderGrid(section);
     }

@@ -163,6 +163,52 @@ The problem: not every card in a real design is a plain rectangle — dynamic/or
 
 **Architectural implication:** every section's shape is currently *implicit* — always a rectangle, entirely determined by `span`/`height`. Supporting custom shapes means adding a new optional schema field (e.g. `clipPath?: string`, an SVG path or polygon coordinate list) that the renderer applies via CSS `clip-path` when present. A real, contained schema/renderer extension — not a rearchitecture — but still additional scope stacked on everything else in this document.
 
+## Content model, revised: collapse to Rectangle + Custom, measured per-element properties
+
+Supersedes the "Symbol vocabulary — NHSF, card is the default" section above, and the pin-per-type discussion that followed it. Worth documenting the reasoning in full since this is a genuine rearchitecture, not a tweak — kept both versions here rather than deleting the old one, same pattern as every other revision in this doc.
+
+**The question that triggered it:** a hero banner and a card are already nearly the same shape (`heading`/`subtext` vs. `title` — both just text fields). Does the type distinction (nav/banner/sidebar/footer/card) need to exist at all, or does everything just collapse to "rectangle vs. custom shape"?
+
+**Shape (rectangle vs. custom) genuinely does collapse to two — this was never really a separate type.** A plain section (no `clipPath`) is implicitly a rectangle; `clipPath` present means custom. Falls straight out of what CV finds when it traces a contour. Nothing changes here.
+
+**Content type looked like it couldn't collapse — and the earlier reasoning for that was right, for the old design.** The 5 typed sections existed to give the renderer an unambiguous content shape (nav needs links, banner needs heading+subtext) without guessing from which optional fields happen to be present. A single generic block was already considered and rejected for exactly that ambiguity: the same field shape could mean different things depending on which optional fields were filled in.
+
+**What actually changes the answer: font size, underline, and image-vs-flat-fill are measured, not guessed.** A footer with subtext, or a hero with no subtext but a small inline link, used to be awkward fits for a fixed field set. Once every text element carries its own measured font size and link status (read directly from the design, via CV), there's no "which type is this" question left to answer — it's just however many text elements actually exist, each sized to what was actually measured. This is different from the earlier-rejected generic-block idea in a specific way: that one was ambiguous because the *same* data shape could mean different things; this one isn't ambiguous, because each element's role is read off a measured property, not inferred from a combination of optional fields.
+
+**New schema shape** (replaces `banner`/`card-group`/`sidebar`/`nav`/`footer` with one type):
+```typescript
+TextElement:      { text, fontSize, x, y, isLink?, linkTarget? }
+ImageRegion:       { x, y, width, height, clipPath?, imageUrl? }
+RectangleSection:  { ...BaseSection, type: "rectangle", clipPath?, textElements?, imageRegions? }
+Section = RectangleSection | GridSection
+```
+`grid` is untouched — it was never a content-type question, it's the layout/nesting primitive, a genuinely separate concern from what's inside a leaf.
+
+**What this means for detection, concretely:**
+- **Text size** — measured font size from CV, not a forced heading/subtext dichotomy.
+- **Links** — underlined text, detected directly; becomes a node the linking canvas can later connect to a page or another element.
+- **Images** — detected via *color variance* within a region (a flat fill has low variance across its pixels, a photo has high variance) — a simple statistical measure over pixel values, no model needed, same classical-CV toolchain already in place for custom shapes.
+
+**Open question this surfaces, not yet resolved:** pins were agreed as the mechanism for marking type + location via a UI. With type no longer needing to be manually chosen (it now falls out of measured properties), pins may only be strictly necessary going forward for marking *custom* (non-rectangular) regions — plain rectangles might be auto-detectable via contour *hierarchy* (OpenCV's `RETR_TREE` mode returns which contours are nested inside which, which is also exactly the grouping/nesting signal `grid` structure needs) without a pin at all. Worth a deliberate decision before building the UI, not assumed either way.
+
+**Note on V1:** this model depends on having an actual image to measure properties from — V1's text-prompt pipeline has no equivalent signal (nothing to visually measure font size or color variance from). The original 6-type schema likely still applies to V1 specifically; this is a V2 (image-driven) evolution, not a replacement for the text-prompt path.
+
+## Two separate theses, not one pipeline with two input modes
+
+This crystallizes something that had been building implicitly across every decision above (measured font size, CV-measured position, pins instead of inferred tags, contour-traced shapes) but was never stated outright until now. Supersedes the "Classical CV vs. a vision-capable LLM" decision above and the "V1 vs. V2 side by side" diagram at the top of this document, both of which still routed V2 through a vision-LLM.
+
+**V1's thesis: safely use an unreliable generative component.** A text prompt is inherently unstructured and non-deterministic to interpret — there's no way to get structure out of "a store homepage with a sidebar of filters" except language understanding, which only an LLM provides. The whole point of V1's schema/validate/retry/fallback pipeline is treating that LLM as a flaky, un-trusted third party: constrain its output, verify before use, degrade gracefully on failure. This doesn't change and can't be removed — it's structurally required by what V1 is doing.
+
+**V2's thesis: reproduce a design exactly, via deterministic measurement, not generation.** Once the goal became "treat the mockup as source of truth — exact positioning, fonts, styles, custom cutouts" rather than "safely interpret ambiguous instructions," the vision-LLM stopped being the right tool for structure and content extraction. A vision-LLM *estimates* what it sees; CV and OCR *measure* it. Concretely:
+
+- **CV** (already underway) — measures geometry: contour-detected region boundaries, font size (glyph height), underline presence, image-vs-flat-fill (color variance).
+- **OCR** (a dedicated text-recognition engine — Tesseract/EasyOCR, not a language model) — reads the actual text content of each region. This replaces the vision-LLM's role for V2 specifically. Real tradeoff acknowledged: OCR is measurably worse than a vision-LLM at stylized/decorative/script fonts, which are common in the exact kind of designs this project targets — worth watching for in testing, not assumed away.
+- **A fine-tuned classifier** (supervised, trained on a labeled dataset built by hand) — font category (serif/sans/script/display/monospace), the one place a trainable model still earns its place, since it's a clean, scoped classification task distinct from geometry measurement.
+
+**What happens to validate/retry/fallback in V2:** it doesn't disappear, it's repurposed. There's no more probabilistic generator to guard against — the JSON gets constructed directly in code from CV+OCR+classifier outputs, so `safeParse` becomes a correctness check on that construction code, not a safeguard against hallucination. The "something went wrong, ask the user to fix it" pattern still applies, just retargeted: not "retry the LLM with the error," but "CV couldn't find a closed outline near this marker, please add a visible border" — already the exact design for the custom-shape-detection failure case, now generalized as the model for every CV/OCR uncertainty in V2, rather than an LLM retry loop.
+
+**Interim state, while CV+OCR aren't fully wired in yet:** `generateSpecFromScreenshot` (vision-LLM) is being kept and run as a baseline/comparison tool during this transition — useful for seeing what a "good enough" result looks like and for testing the new `Rectangle`/`Grid` schema shape end-to-end before CV+OCR replace it. It is not the intended long-term V2 mechanism.
+
 ## Status
 
 Exploratory — design reasoning only, not yet implemented. Revisit and re-scope before starting a build.
