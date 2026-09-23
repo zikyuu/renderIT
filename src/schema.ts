@@ -41,12 +41,25 @@ const ImageRegion = z.object({
   imageUrl: z.string().optional(),
 });
 
+// a decorative fill behind text/images - e.g. a nav pill or button background -
+// distinct from the rectangle's own backgroundColor since several of these can
+// sit inside one rectangle at their own measured positions
+const ShapeElement = z.object({
+  x: Coordinate,
+  y: Coordinate,
+  width: Coordinate,
+  height: Coordinate,
+  backgroundColor: z.string(),
+  borderRadius: z.number().min(0).max(50).optional(), // % of the shape's own height; 50 = fully pill-shaped
+});
+
 // replaces banner/card-group/sidebar/nav/footer - one generalized leaf type.
 // clipPath here (not on TextElement/ImageRegion) means the whole rectangle
 // itself has a custom outline, not just an image inside it
 const RectangleSection = BaseSection.extend({
   type: z.literal("rectangle"),
   clipPath: z.string().optional(),
+  shapes: z.array(ShapeElement).optional(),
   textElements: z.array(TextElement).optional(),
   imageRegions: z.array(ImageRegion).optional(),
 });
@@ -87,5 +100,5 @@ const PageSchema = z.object({
 });
 
 export { PageSchema, SectionSchema, Section, SizeUnit, Coordinate,
-  RectangleSection, TextElement, ImageRegion, GridSectionSchema };
+  RectangleSection, TextElement, ImageRegion, ShapeElement, GridSectionSchema };
 export type { GridSection };

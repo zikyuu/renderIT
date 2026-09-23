@@ -2,7 +2,7 @@ import { readFileSync } from "fs";
 import { PNG } from "pngjs";
 import { z } from "zod";
 import { PageSchema, Section } from "./schema";
-import { detectText } from "./ocr-detect";
+import { detectTextAndShapes, DetectedShape } from "./ocr-detect";
 import { detectImageRegions } from "./colour_variance-detect";
 
 type Page = z.infer<typeof PageSchema>;
@@ -145,7 +145,7 @@ export async function assemblePage(imagePath: string): Promise<{ page: Page; wid
   const { width, height } = png;
   const minRows = Math.round(height * MIN_BAND_FRACTION);
 
-  const text = await detectText(imagePath);
+  const { text, shapes } = await detectTextAndShapes(imagePath);
   const confident = text.filter((t) => t.confidence >= EXCLUDE_CONFIDENCE);
   const photoRegions = await detectImageRegions(imagePath, confident);
 
@@ -187,6 +187,15 @@ export async function assemblePage(imagePath: string): Promise<{ page: Page; wid
     textByBand.set(band, [...(textByBand.get(band) ?? []), t]);
   }
 
+  // same idea for shapes (pill/button fills) - grouped by the band holding their vertical centre
+  const shapesByBand = new Map<Band, DetectedShape[]>();
+  for (const s of shapes) {
+    const centreY = (s.y0 + s.y1) / 2;
+    const band = perBand.find((b) => centreY >= b.y0 && centreY < b.y1);
+    if (!band) continue;
+    shapesByBand.set(band, [...(shapesByBand.get(band) ?? []), s]);
+  }
+
   const columns: Section[] = bands.map((band) => {
     const bandH = band.y1 - band.y0;
     const base = { span: 100, height: clampUnit((bandH / height) * 100) };
@@ -205,11 +214,25 @@ export async function assemblePage(imagePath: string): Promise<{ page: Page; wid
       };
     });
 
+    const bandShapes = (shapesByBand.get(band) ?? []).map((s) => {
+      const sx = clampCoord((s.x0 / width) * 100);
+      const sy = clampCoord(((s.y0 - band.y0) / bandH) * 100);
+      return {
+        x: sx,
+        y: sy,
+        width: Math.min(clampCoord(((s.x1 - s.x0) / width) * 100), 100 - sx),
+        height: Math.min(clampCoord(((s.y1 - s.y0) / bandH) * 100), 100 - sy),
+        backgroundColor: s.backgroundColor,
+        borderRadius: s.borderRadius,
+      };
+    });
+
     if (band.kind === "photo") {
       const imgX = clampCoord((band.photoX!.x0 / width) * 100);
       return {
         type: "rectangle" as const,
         ...base,
+        shapes: bandShapes,
         textElements,
         imageRegions: [{
           x: imgX,
@@ -219,7 +242,7 @@ export async function assemblePage(imagePath: string): Promise<{ page: Page; wid
         }],
       };
     }
-    return { type: "rectangle" as const, ...base, backgroundColor: toHex(band.colour!), textElements };
+    return { type: "rectangle" as const, ...base, backgroundColor: toHex(band.colour!), shapes: bandShapes, textElements };
   });
 
   const page: Page = {

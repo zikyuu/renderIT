@@ -133,20 +133,41 @@ function cleanText(text: string): string {
   return text.trim().replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "");
 }
 
-async function detectContainerText(png: PNG, worker: Worker): Promise<{ container: Box; text: DetectedText }[]> {
+export interface DetectedShape {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  backgroundColor: string;
+  borderRadius: number; // % of the shape's own height; 50 = fully pill-shaped
+}
+
+const colourDist = (a: RGB, b: RGB) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const toHex = (c: RGB) => "#" + c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
+
+// a candidate container's geometry alone is a weak signal - both a stray
+// blob of photo texture and a fragment of large heading text can happen to
+// have a button-like size/aspect ratio. Confirmed OCR text inside it (the
+// same bar used to keep it as text at all) is what tells a real button/pill
+// apart from those false positives, so shapes are only ever derived from a
+// container that OCR actually read successfully - never from geometry alone.
+async function detectConfirmedContainers(
+  png: PNG,
+  worker: Worker
+): Promise<{ container: Box; bg: RGB; text: DetectedText; shape: DetectedShape }[]> {
   const { width: W, height: H } = png;
   const bgs = dominantColours(png, { x0: 0, y0: 0, x1: W - 1, y1: H - 1 }, 0.08, 3);
 
-  const containers: Box[] = [];
+  const candidates: { box: Box; bg: RGB }[] = [];
   for (const bg of bgs) {
     for (const b of findContainers(png, bg)) {
-      if (!containers.some((c) => boxesOverlap(c, b))) containers.push(b);
+      if (!candidates.some((c) => boxesOverlap(c.box, b))) candidates.push({ box: b, bg });
     }
   }
 
   await worker.setParameters({ tessedit_pageseg_mode: "7" as any });
-  const found: { container: Box; text: DetectedText }[] = [];
-  for (const container of containers) {
+  const found: { container: Box; bg: RGB; text: DetectedText; shape: DetectedShape }[] = [];
+  for (const { box: container, bg } of candidates) {
     const crop = renderContainerCrop(png, container);
     const { data } = await worker.recognize(crop.path, {}, { blocks: true });
     unlinkSync(crop.path);
@@ -168,8 +189,21 @@ async function detectContainerText(png: PNG, worker: Worker): Promise<{ containe
     const toSrcY = (v: number) => crop.y0 + (v - CROP_PAD) / CROP_SCALE;
     const heightPx = (y1 - y0) / CROP_SCALE;
 
+    const fill = dominantColours(png, container, 0, 1)[0];
+    const bh = container.y1 - container.y0 + 1;
+    // sample right at a corner: if it matches the outer background rather
+    // than the fill, the corner is cut away by rounding rather than square
+    const inset = Math.max(2, Math.round(bh * 0.18));
+    const corner = dominantColours(
+      png,
+      { x0: container.x0, y0: container.y0, x1: container.x0 + inset, y1: container.y0 + inset },
+      0, 1
+    )[0];
+    const isRounded = colourDist(corner, bg) < colourDist(corner, fill);
+
     found.push({
       container,
+      bg,
       text: {
         text,
         x: (toSrcX(x0) / W) * 100,
@@ -179,12 +213,17 @@ async function detectContainerText(png: PNG, worker: Worker): Promise<{ containe
         fontSize: heightToFontSize(heightPx),
         confidence,
       },
+      shape: {
+        x0: container.x0, y0: container.y0, x1: container.x1, y1: container.y1,
+        backgroundColor: toHex(fill),
+        borderRadius: isRounded ? 50 : 15,
+      },
     });
   }
   return found;
 }
 
-export async function detectText(imagePath: string): Promise<DetectedText[]> {
+export async function detectTextAndShapes(imagePath: string): Promise<{ text: DetectedText[]; shapes: DetectedShape[] }> {
   const png = PNG.sync.read(readFileSync(imagePath));
   const { width: imageWidth, height: imageHeight } = png;
 
@@ -208,7 +247,7 @@ export async function detectText(imagePath: string): Promise<DetectedText[]> {
     })
     .filter((el: DetectedText) => el.text.length > 0);
 
-  const containerResults = await detectContainerText(png, worker);
+  const confirmed = await detectConfirmedContainers(png, worker);
   await worker.terminate();
 
   // container OCR is more trustworthy inside a container than whole-page OCR,
@@ -228,8 +267,15 @@ export async function detectText(imagePath: string): Promise<DetectedText[]> {
   const keptPageLines = pageLines.filter(
     (el) =>
       el.text.replace(/[^A-Za-z0-9]/g, "").length >= 2 &&
-      !containerResults.some((r) => mostlyInside(toBox(el), r.container))
+      !confirmed.some((r) => mostlyInside(toBox(el), r.container))
   );
 
-  return [...keptPageLines, ...containerResults.map((r) => r.text)];
+  return {
+    text: [...keptPageLines, ...confirmed.map((r) => r.text)],
+    shapes: confirmed.map((r) => r.shape),
+  };
+}
+
+export async function detectText(imagePath: string): Promise<DetectedText[]> {
+  return (await detectTextAndShapes(imagePath)).text;
 }
