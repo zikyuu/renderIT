@@ -1,10 +1,15 @@
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { basename, extname } from "path";
 import { PageSchema } from "./schema";
 import { renderSection } from "./renderer";
 import { assemblePage } from "./assemble";
 
 // npx tsx src/screenshot-to-html.ts screenshots/test2.png
+// writes demo/<name>-spec.json and demo/<name>-preview.html, one pair per
+// input image, so running it on several screenshots doesn't overwrite the last result
 const imagePath = process.argv[2] ?? "screenshots/test2.png";
+const name = basename(imagePath, extname(imagePath));
+mkdirSync("demo", { recursive: true });
 
 async function main() {
   console.log(`Assembling page from ${imagePath}...`);
@@ -21,11 +26,11 @@ async function main() {
   if (!result.success) {
     console.log("INVALID - assembled page doesn't match the schema:");
     console.log(JSON.stringify(result.error.format(), null, 2));
-    writeFileSync("page-spec.json", JSON.stringify(page, null, 2));
+    writeFileSync(`demo/${name}-spec.json`, JSON.stringify(page, null, 2));
     process.exit(1);
   }
   console.log("VALID");
-  writeFileSync("page-spec.json", JSON.stringify(result.data, null, 2));
+  writeFileSync(`demo/${name}-spec.json`, JSON.stringify(result.data, null, 2));
 
   const bodyHtml = result.data.sections.map(renderSection).join("\n");
   const original = readFileSync(imagePath).toString("base64");
@@ -51,8 +56,8 @@ ${bodyHtml}
 <div class="frame"><img src="data:image/png;base64,${original}" /></div>
 </body>
 </html>`;
-  writeFileSync("v2-preview.html", html);
-  console.log("Wrote page-spec.json and v2-preview.html");
+  writeFileSync(`demo/${name}-preview.html`, html);
+  console.log(`Wrote demo/${name}-spec.json and demo/${name}-preview.html`);
 }
 
 main();
