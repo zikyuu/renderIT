@@ -33,7 +33,7 @@ function sectionStyle(section: { backgroundColor?: string }, fallback: string, p
 // design's real layout, not a guessed spacing). isLink renders as a real
 // link - linkTarget stays empty until the linking canvas wires it up later
 function renderTextElement(el: z.infer<typeof TextElement>): string {
-    const style = `position: absolute; left: ${el.x}%; top: ${el.y}%; font-size: ${fontSizeToRem(el.fontSize)};`;
+    const style = `position: absolute; left: ${el.x}%; top: ${el.y}%; font-size: ${fontSizeToRem(el.fontSize)}; color: ${el.color ?? "inherit"};`;
     if (el.isLink) {
         return `<a href="${el.linkTarget ?? "#"}" style="${style}">${el.text}</a>`;
     }

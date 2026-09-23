@@ -4,6 +4,11 @@ import { z } from "zod";
 // like CSS flex-grow / fr units
 const SizeUnit = z.number().int().min(1).max(100);
 
+// a measured position or extent, as a % of its parent - unlike SizeUnit this
+// allows 0 (flush against an edge) and decimals (real measurements aren't
+// round numbers), since it locates something rather than weighing it against siblings
+const Coordinate = z.number().min(0).max(100);
+
 const BaseSection = z.object({
     span: SizeUnit,
     height: SizeUnit,
@@ -17,8 +22,9 @@ const BaseSection = z.object({
 const TextElement = z.object({
   text: z.string(),
   fontSize: SizeUnit,
-  x: SizeUnit,
-  y: SizeUnit,
+  x: Coordinate,
+  y: Coordinate,
+  color: z.string().optional(),
   isLink: z.boolean().optional(),
   linkTarget: z.string().optional(),
 });
@@ -27,10 +33,10 @@ const TextElement = z.object({
 // variance = photo, low = flat fill). imageUrl is empty until the user
 // drags an image in later
 const ImageRegion = z.object({
-  x: SizeUnit,
-  y: SizeUnit,
-  width: SizeUnit,
-  height: SizeUnit,
+  x: Coordinate,
+  y: Coordinate,
+  width: Coordinate,
+  height: Coordinate,
   clipPath: z.string().optional(), // present = custom/non-rectangular outline
   imageUrl: z.string().optional(),
 });
@@ -80,6 +86,6 @@ const PageSchema = z.object({
   gap: z.number().int().min(0).max(100).optional(),
 });
 
-export { PageSchema, SectionSchema, Section, SizeUnit,
+export { PageSchema, SectionSchema, Section, SizeUnit, Coordinate,
   RectangleSection, TextElement, ImageRegion, GridSectionSchema };
 export type { GridSection };

@@ -27,6 +27,48 @@ interface Band {
 const toHex = (c: RGB) => "#" + c.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
 const dist = (a: RGB, b: RGB) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 const clampUnit = (v: number) => Math.max(1, Math.min(100, Math.round(v)));
+// positions/extents keep decimal precision and allow 0, unlike the weight fields above
+const clampCoord = (v: number) => Math.round(Math.max(0, Math.min(100, v)) * 10) / 10;
+const TEXT_COLOUR_DIST = 50; // pixel must differ from the local background by this much to count as "ink"
+
+// the colour right around a text line (not the whole band) is that line's real
+// local background - correct even for text sitting on a button on top of a photo
+function localBackground(png: PNG, x0: number, y0: number, x1: number, y1: number): RGB {
+  const { width, height, data } = png;
+  const px0 = Math.max(0, x0), py0 = Math.max(0, y0);
+  const px1 = Math.min(width, x1), py1 = Math.min(height, y1);
+  const sums = new Map<number, { n: number; r: number; g: number; b: number }>();
+  for (let y = py0; y < py1; y++) {
+    for (let x = px0; x < px1; x++) {
+      const i = (y * width + x) * 4;
+      const k = ((data[i] >> 4) << 8) | ((data[i + 1] >> 4) << 4) | (data[i + 2] >> 4);
+      const s = sums.get(k) ?? { n: 0, r: 0, g: 0, b: 0 };
+      s.n++; s.r += data[i]; s.g += data[i + 1]; s.b += data[i + 2];
+      sums.set(k, s);
+    }
+  }
+  const top = [...sums.values()].sort((a, b) => b.n - a.n)[0];
+  return [top.r / top.n, top.g / top.n, top.b / top.n];
+}
+
+// average of the pixels inside the tight text box that don't match the local
+// background - i.e. the glyph ink, not the fill behind it
+function sampleTextColour(png: PNG, x0: number, y0: number, x1: number, y1: number): string {
+  const { width, data } = png;
+  const pad = Math.round((y1 - y0) * 0.6);
+  const bg = localBackground(png, x0 - pad, y0 - pad, x1 + pad, y1 + pad);
+
+  let n = 0, r = 0, g = 0, b = 0;
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const i = (y * width + x) * 4;
+      if (dist([data[i], data[i + 1], data[i + 2]], bg) < TEXT_COLOUR_DIST) continue;
+      n++; r += data[i]; g += data[i + 1]; b += data[i + 2];
+    }
+  }
+  if (n === 0) return toHex(bg[0] + bg[1] + bg[2] > 380 ? [30, 30, 30] : [245, 245, 245]);
+  return toHex([r / n, g / n, b / n]);
+}
 
 // most common (quantised) colour of every row - the row's "background"
 function rowBackgrounds(png: PNG): RGB[] {
@@ -149,24 +191,31 @@ export async function assemblePage(imagePath: string): Promise<{ page: Page; wid
     const bandH = band.y1 - band.y0;
     const base = { span: 100, height: clampUnit((bandH / height) * 100) };
 
-    const textElements = (textByBand.get(band) ?? []).map((t) => ({
-      text: t.text,
-      fontSize: t.fontSize,
-      x: clampUnit(t.x),
-      y: clampUnit((((t.y / 100) * height - band.y0) / bandH) * 100),
-    }));
+    const textElements = (textByBand.get(band) ?? []).map((t) => {
+      const px0 = Math.round((t.x / 100) * width);
+      const py0 = Math.round((t.y / 100) * height);
+      const px1 = Math.round(((t.x + t.width) / 100) * width);
+      const py1 = Math.round(((t.y + t.height) / 100) * height);
+      return {
+        text: t.text,
+        fontSize: t.fontSize,
+        x: clampCoord(t.x),
+        y: clampCoord((((t.y / 100) * height - band.y0) / bandH) * 100),
+        color: sampleTextColour(png, px0, py0, px1, py1),
+      };
+    });
 
     if (band.kind === "photo") {
-      const imgX = clampUnit((band.photoX!.x0 / width) * 100);
+      const imgX = clampCoord((band.photoX!.x0 / width) * 100);
       return {
         type: "rectangle" as const,
         ...base,
         textElements,
         imageRegions: [{
           x: imgX,
-          y: 1,
-          width: Math.min(clampUnit(((band.photoX!.x1 - band.photoX!.x0) / width) * 100), 100 - imgX),
-          height: 99,
+          y: 0,
+          width: Math.min(clampCoord(((band.photoX!.x1 - band.photoX!.x0) / width) * 100), 100 - imgX),
+          height: 100,
         }],
       };
     }
