@@ -1,5 +1,7 @@
 node_modules/
 output.html
 manual-spec.json
-.enveng.traineddata
+.env
+eng.traineddata
+page-spec.json
 *-preview.html
