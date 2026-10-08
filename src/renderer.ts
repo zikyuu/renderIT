@@ -14,11 +14,19 @@ function escapeHtml(text: string): string {
     .replace(/'/g, "&#39;");
 }
 
-// blocks javascript:/data:text/html-style URLs in href - only lets through
-// schemes that can't execute script
-const SAFE_LINK_SCHEME = /^(https?:|mailto:|tel:|#|\/)/i;
+// Links are either one of a few safe absolute schemes or a scheme-less
+// relative path (e.g. "about.html", "#top"). Anything else that declares a
+// scheme - javascript:, data:, vbscript: - is replaced with "#". Browsers
+// ignore tabs/newlines/control chars inside a URL, so "java\tscript:" is
+// still a javascript: URL; those are stripped before checking. A leading
+// "//" is a protocol-relative link to another site, also blocked.
+const ALLOWED_LINK_SCHEME = /^(https?:|mailto:|tel:)/i;
+const ANY_SCHEME = /^[a-z][a-z0-9+.\-]*:/i;
 function sanitizeLinkTarget(target: string | undefined): string {
-  if (!target || !SAFE_LINK_SCHEME.test(target.trim())) return "#";
+  if (!target) return "#";
+  const probe = target.replace(/[\u0000- ]/g, "");
+  if (ALLOWED_LINK_SCHEME.test(probe)) return target;
+  if (ANY_SCHEME.test(probe) || probe.startsWith("//")) return "#";
   return target;
 }
 
@@ -63,10 +71,11 @@ function sectionStyle(section: { backgroundColor?: string }, fallback: string, p
 function renderTextElement(el: z.infer<typeof TextElement>): string {
     const style = `position: absolute; left: ${el.x}%; top: ${el.y}%; font-size: ${fontSizeToRem(el.fontSize)}; color: ${el.color ?? "inherit"};`;
     const text = escapeHtml(el.text);
+    const idAttr = el.id ? ` data-id="${escapeHtml(el.id)}"` : "";
     if (el.isLink) {
-        return `<a href="${escapeHtml(sanitizeLinkTarget(el.linkTarget))}" style="${style}">${text}</a>`;
+        return `<a${idAttr} href="${escapeHtml(sanitizeLinkTarget(el.linkTarget))}" style="${style}">${text}</a>`;
     }
-    return `<span style="${style}">${text}</span>`;
+    return `<span${idAttr} style="${style}">${text}</span>`;
 }
 
 // a fill sitting behind the text/images in the same rectangle - e.g. a nav
@@ -74,7 +83,11 @@ function renderTextElement(el: z.infer<typeof TextElement>): string {
 // stack on top without needing an explicit z-index
 function renderShape(shape: z.infer<typeof ShapeElement>): string {
     const style = `position: absolute; left: ${shape.x}%; top: ${shape.y}%; width: ${shape.width}%; height: ${shape.height}%; background-color: ${shape.backgroundColor}; border-radius: ${shape.borderRadius ?? 0}%;`;
-    return `<div style="${style}"></div>`;
+    const idAttr = shape.id ? ` data-id="${escapeHtml(shape.id)}"` : "";
+    if (shape.linkTarget) {
+        return `<a${idAttr} href="${escapeHtml(sanitizeLinkTarget(shape.linkTarget))}" style="${style}"></a>`;
+    }
+    return `<div${idAttr} style="${style}"></div>`;
 }
 
 // one detected image region, positioned/sized by its measured bounding box.
@@ -84,10 +97,14 @@ function renderImageRegion(region: z.infer<typeof ImageRegion>): string {
     const clipStyle = region.clipPath ? `clip-path: ${region.clipPath};` : "";
     const style = `position: absolute; left: ${region.x}%; top: ${region.y}%; width: ${region.width}%; height: ${region.height}%; ${clipStyle}`;
     const safeUrl = sanitizeImageUrl(region.imageUrl);
-    if (safeUrl) {
-        return `<img src="${escapeHtml(safeUrl)}" style="${style} object-fit: cover;" />`;
+    const idAttr = region.id ? ` data-id="${escapeHtml(region.id)}"` : "";
+    const inner = safeUrl
+        ? `<img${idAttr} src="${escapeHtml(safeUrl)}" style="${style} object-fit: cover;" />`
+        : `<div${idAttr} style="${style} background-color: #d1d5db; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: #6b7280;">image</div>`;
+    if (region.linkTarget) {
+        return `<a href="${escapeHtml(sanitizeLinkTarget(region.linkTarget))}">${inner}</a>`;
     }
-    return `<div style="${style} background-color: #d1d5db; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: #6b7280;">image</div>`;
+    return inner;
 }
 
 // replaces renderBanner/renderCardGroup/renderSidebar/renderNav/renderFooter -

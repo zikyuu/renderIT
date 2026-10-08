@@ -6,3 +6,5 @@ eng.traineddata
 page-spec.json
 *-preview.html
 demo/
+
+build/

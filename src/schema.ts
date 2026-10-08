@@ -19,7 +19,12 @@ const BaseSection = z.object({
 // not a pre-declared "heading vs subtext" role. isLink (from an underline)
 // marks it as a routing node; linkTarget gets filled in later via the
 // linking canvas, once the user connects it to a page/element
+// id is only for addressing an element from the editor ("this element on this
+// page links there"). It's assigned in assemble.ts, unique within a page
+const ElementId = z.string().regex(/^[a-z]+-\d{1,4}$/);
+
 const TextElement = z.object({
+  id: ElementId.optional(),
   text: z.string(),
   fontSize: SizeUnit,
   x: Coordinate,
@@ -33,6 +38,8 @@ const TextElement = z.object({
 // variance = photo, low = flat fill). imageUrl is empty until the user
 // drags an image in later
 const ImageRegion = z.object({
+  id: ElementId.optional(),
+  linkTarget: z.string().optional(),
   x: Coordinate,
   y: Coordinate,
   width: Coordinate,
@@ -45,6 +52,8 @@ const ImageRegion = z.object({
 // distinct from the rectangle's own backgroundColor since several of these can
 // sit inside one rectangle at their own measured positions
 const ShapeElement = z.object({
+  id: ElementId.optional(),
+  linkTarget: z.string().optional(),
   x: Coordinate,
   y: Coordinate,
   width: Coordinate,

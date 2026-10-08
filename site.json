@@ -1,0 +1,6 @@
+{
+  "pages": [
+    { "name": "home", "screenshot": "screenshots/test2.png" },
+    { "name": "wireframe", "screenshot": "screenshots/test1.png" }
+  ]
+}

@@ -196,6 +196,10 @@ export async function assemblePage(imagePath: string): Promise<{ page: Page; wid
     shapesByBand.set(band, [...(shapesByBand.get(band) ?? []), s]);
   }
 
+  // ids are numbered per kind in top-to-bottom band order, so the same input
+  // image gives the same ids on every run
+  let textCount = 0, shapeCount = 0, imageCount = 0;
+
   const columns: Section[] = bands.map((band) => {
     const bandH = band.y1 - band.y0;
     const base = { span: 100, height: clampUnit((bandH / height) * 100) };
@@ -206,6 +210,7 @@ export async function assemblePage(imagePath: string): Promise<{ page: Page; wid
       const px1 = Math.round(((t.x + t.width) / 100) * width);
       const py1 = Math.round(((t.y + t.height) / 100) * height);
       return {
+        id: `text-${textCount++}`,
         text: t.text,
         fontSize: t.fontSize,
         x: clampCoord(t.x),
@@ -218,6 +223,7 @@ export async function assemblePage(imagePath: string): Promise<{ page: Page; wid
       const sx = clampCoord((s.x0 / width) * 100);
       const sy = clampCoord(((s.y0 - band.y0) / bandH) * 100);
       return {
+        id: `shape-${shapeCount++}`,
         x: sx,
         y: sy,
         width: Math.min(clampCoord(((s.x1 - s.x0) / width) * 100), 100 - sx),
@@ -235,6 +241,7 @@ export async function assemblePage(imagePath: string): Promise<{ page: Page; wid
         shapes: bandShapes,
         textElements,
         imageRegions: [{
+          id: `image-${imageCount++}`,
           x: imgX,
           y: 0,
           width: Math.min(clampCoord(((band.photoX!.x1 - band.photoX!.x0) / width) * 100), 100 - imgX),
